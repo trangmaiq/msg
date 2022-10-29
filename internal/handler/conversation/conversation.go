@@ -16,10 +16,8 @@ const (
 	DefaultReadBufferSize   = 8 * 1024
 )
 
-var conversation = map[string]entity.Conversation{
-	"1": {
-		Forwarder: make(chan []byte),
-	},
+var conversations = map[string]*entity.Conversation{
+	"1": entity.NewConversation(),
 }
 
 type JoinConversationInput struct {
@@ -27,17 +25,9 @@ type JoinConversationInput struct {
 }
 
 func init() {
-	go func() {
-		for {
-			select {
-			case payload := <-conversation["1"].Forwarder:
-				for _, sub := range conversation["1"].Subscribers {
-					sub.Send <- payload
-					log.Println("send to ", sub.ID)
-				}
-			}
-		}
-	}()
+	for _, c := range conversations {
+		go c.Start()
+	}
 }
 
 func Join(c *gin.Context) {
@@ -69,18 +59,13 @@ func Join(c *gin.Context) {
 		return
 	}
 
-	subscriber := entity.Subscriber{
+	client := entity.Client{
 		ID:           uuid.NewString(),
 		Conn:         conn,
-		Conversation: conversation["1"].Forwarder,
 		Send:         make(chan []byte),
+		Conversation: conversations["1"],
 	}
-	subscribers := append(conversation["1"].Subscribers, subscriber)
-
-	con := conversation["1"]
-	con.Subscribers = subscribers
-	conversation["1"] = con
-	log.Println(conversation["1"])
-	go subscriber.Read()
-	subscriber.Write()
+	client.Conversation.Register <- &client
+	go client.Read()
+	go client.Write()
 }
